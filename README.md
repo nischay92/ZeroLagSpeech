@@ -42,6 +42,8 @@ docker compose up
 
 Use `docker compose up --build` after dependency or Dockerfile changes.
 
+The Docker stack includes PostgreSQL and automatically applies Alembic migrations before the API starts. For hosted environments, set `DATABASE_URL` to the SQLAlchemy-compatible Supabase PostgreSQL connection string using the `postgresql+asyncpg://` scheme.
+
 ## Local development
 
 Local development requires Node.js 20+ and Python 3.12+.
@@ -73,6 +75,12 @@ cd apps/api
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/pytest
+```
+
+Apply database migrations manually from `apps/api` with:
+
+```bash
+.venv/bin/alembic upgrade head
 ```
 
 ## Contributing workflow

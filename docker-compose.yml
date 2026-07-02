@@ -20,8 +20,14 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-zerolag}:${POSTGRES_PASSWORD:-zerolag}@db:5432/${POSTGRES_DB:-zerolag}
+      DATABASE_REQUIRED: "true"
+      DATABASE_ECHO: ${DATABASE_ECHO:-false}
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -33,3 +39,26 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zerolag}
+      POSTGRES_USER: ${POSTGRES_USER:-zerolag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zerolag}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-zerolag} -d ${POSTGRES_DB:-zerolag}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
