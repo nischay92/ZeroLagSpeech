@@ -2,10 +2,11 @@
 .env.local
 .next/
 node_modules/
+target/
+src-tauri/gen/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
 *.py[cod]
 dist/
-
