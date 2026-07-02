@@ -1,21 +1,21 @@
 {
-  "name": "zerolag",
+  "name": "zerolag-desktop",
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/web",
-    "packages/*"
+    "apps/desktop"
   ],
   "scripts": {
-    "dev:web": "npm run dev --workspace=@zerolag/web",
-    "build:web": "npm run build --workspace=@zerolag/web",
-    "lint": "npm run lint --workspace=@zerolag/web",
+    "dev": "npm run tauri:dev --workspace=@zerolag/desktop",
+    "dev:ui": "npm run dev --workspace=@zerolag/desktop",
+    "build": "npm run build --workspace=@zerolag/desktop",
+    "tauri:build": "npm run tauri:build --workspace=@zerolag/desktop",
+    "lint": "npm run lint --workspace=@zerolag/desktop",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "prettier": "^3.6.2",
-    "prettier-plugin-tailwindcss": "^0.6.14"
+    "prettier": "^3.6.2"
   },
   "engines": {
     "node": ">=20"
