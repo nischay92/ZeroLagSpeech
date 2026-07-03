@@ -6,11 +6,7 @@ import {
   type SidecarEvent,
 } from "../lib/sidecar";
 import type { RecordingPhase } from "../lib/recording-events";
-
-const SIDECAR_URL =
-  import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:43110";
-const SIDECAR_TOKEN =
-  import.meta.env.VITE_SIDECAR_TOKEN ?? "local-development-token";
+import { getRuntimeConfig } from "../lib/runtime";
 
 export function useRecordingSession() {
   const [phase, setPhase] = useState<RecordingPhase>("idle");
@@ -39,13 +35,18 @@ export function useRecordingSession() {
     setTranscript("");
     setDurationMs(0);
 
-    const socket = new WebSocket(
-      createSessionSocketUrl(SIDECAR_URL, crypto.randomUUID(), SIDECAR_TOKEN),
-    );
-    socket.binaryType = "arraybuffer";
-    socketRef.current = socket;
-
     try {
+      const runtime = await getRuntimeConfig();
+      if (runtime.startupError) throw new Error(runtime.startupError);
+      const socket = new WebSocket(
+        createSessionSocketUrl(
+          runtime.baseUrl,
+          crypto.randomUUID(),
+          runtime.token,
+        ),
+      );
+      socket.binaryType = "arraybuffer";
+      socketRef.current = socket;
       await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(
           () => reject(new Error("Sidecar connection timed out.")),
@@ -65,7 +66,7 @@ export function useRecordingSession() {
             window.clearTimeout(timeout);
             reject(
               new Error(
-                "Cannot reach the ZeroLag sidecar. Start it and try again.",
+                "Cannot reach the ZeroLag local runtime. Restart the app and try again.",
               ),
             );
           },

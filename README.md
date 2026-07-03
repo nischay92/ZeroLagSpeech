@@ -61,10 +61,11 @@ git clone https://github.com/nischay92/ZeroLagSpeech.git
 cd ZeroLagSpeech
 git checkout desktop-mvp
 npm install
+npm run setup:sidecar
 npm run dev
 ```
 
-`npm run dev` starts Vite and opens the native Tauri window.
+`npm run dev` starts Vite, launches the authenticated local sidecar on an available loopback port, and opens the native Tauri windows. The sidecar stops automatically when ZeroLag exits.
 
 To work on the UI in a browser without launching Tauri:
 
@@ -74,14 +75,20 @@ npm run dev:ui
 
 The browser-only development URL is <http://127.0.0.1:1420>.
 
-Set up the local Python sidecar in another terminal:
+To set up the local Python sidecar manually instead of using `npm run setup:sidecar`:
 
 ```bash
 cd apps/sidecar
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-ZEROLAG_SIDECAR_TOKEN=local-development-token .venv/bin/python -m zerolag_sidecar
+cd apps/sidecar
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
 ```
+
+You do not need to run the sidecar in a second terminal. The desktop runtime owns its process, random port, and per-launch authentication token.
+
+Provider API keys are configured from **Provider settings** inside the desktop app. They are stored in macOS Keychain or Windows Credential Manager; they are never written to `.env`, local storage, or frontend assets.
 
 ## Verification
 
@@ -101,7 +108,7 @@ cd apps/sidecar
 ## Desktop security rules
 
 - The sidecar must bind only to a loopback address.
-- Packaged builds must authenticate sidecar requests with a per-launch secret.
+- Sidecar requests authenticate with a fresh per-launch secret.
 - Provider credentials must use the operating system's secure credential store.
 - Provider keys must never be committed, logged, or embedded in frontend assets.
 - Local session data must remain on the user's machine unless the user explicitly enables a future sync feature.
@@ -121,7 +128,7 @@ cd apps/sidecar
 
 ## Current status
 
-The repository currently contains the cross-platform desktop shell, production recording controls, microphone capture, always-on-top overlay, mock sidecar, and versioned sidecar protocol. Provider implementations, persistence, secure key storage, bundled-sidecar lifecycle, code signing, and release verification are intentionally pending.
+The repository currently contains the cross-platform desktop shell, production recording controls, microphone capture, always-on-top overlay, automatic authenticated development-sidecar lifecycle, native secure provider credentials, mock providers, and versioned sidecar protocol. Provider integration, persistence, packaged PyInstaller binaries, code signing, and release verification remain pending.
 
 ## Installer builds
 
