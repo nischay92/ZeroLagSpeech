@@ -299,5 +299,25 @@ pub fn run() {
                     }
                 };
             }
+
+            // The floating recorder-overlay is a separate, skipTaskbar,
+            // always-on-top window — closing "main" alone doesn't close it
+            // or quit the app (macOS keeps running as long as any window,
+            // even a hidden-from-dock one, is still open). Closing main is
+            // the intended "quit ZeroLag" action here, so tear everything
+            // down together instead of leaving the overlay stranded.
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { .. },
+                ..
+            } = &event
+            {
+                if label == "main" {
+                    if let Some(overlay) = app.get_webview_window("recorder-overlay") {
+                        let _ = overlay.close();
+                    }
+                    app.exit(0);
+                }
+            }
         });
 }
