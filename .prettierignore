@@ -3,3 +3,7 @@ package-lock.json
 dist
 target
 **/src-tauri/gen
+.venv
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
