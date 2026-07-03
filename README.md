@@ -2,7 +2,7 @@
 
 ZeroLag is an open-source, local-first voice intelligence application for macOS and Windows. It turns live speech into transcripts and structured AI assistance without requiring users—or the project maintainers—to operate hosted application infrastructure.
 
-The macOS `.dmg` is the first distribution target. Windows `.exe`/`.msi` packaging will follow from the same shared codebase.
+The same shared codebase produces a macOS `.dmg` and Windows `.exe`/`.msi` installers.
 
 ## Product direction
 
@@ -50,6 +50,7 @@ Provider implementations must remain behind the shared sidecar protocol. Changes
 - Node.js 20+
 - Rust stable toolchain
 - macOS: Xcode and Xcode Command Line Tools
+- Windows: Microsoft C++ Build Tools and WebView2
 
 Install Rust through <https://rustup.rs> or a supported system package manager.
 
@@ -73,6 +74,15 @@ npm run dev:ui
 
 The browser-only development URL is <http://127.0.0.1:1420>.
 
+Set up the local Python sidecar in another terminal:
+
+```bash
+cd apps/sidecar
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+ZEROLAG_SIDECAR_TOKEN=local-development-token .venv/bin/python -m zerolag_sidecar
+```
+
 ## Verification
 
 ```bash
@@ -81,6 +91,11 @@ npm run format:check
 npm run build
 cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+cd apps/sidecar
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/pytest
 ```
 
 ## Desktop security rules
@@ -94,7 +109,7 @@ cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
 ## Planned milestones
 
 1. Validate the Tauri macOS shell and development workflow.
-2. Add macOS microphone capture and permissions.
+2. Add cross-platform microphone capture, permissions, and floating recording controls. (complete)
 3. Implement and package the Python sidecar lifecycle.
 4. Integrate Deepgram speech streaming.
 5. Integrate Cerebras inference.
@@ -102,8 +117,14 @@ cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
 7. Build the live transcript and AI workspace.
 8. Add secure provider settings.
 9. Package and verify the macOS `.dmg`.
-10. Add Windows packaging and `.exe`/`.msi` verification.
+10. Package and verify Windows `.exe`/`.msi` installers.
 
 ## Current status
 
-The repository currently contains the desktop shell, initial UI, macOS bundle target, and sidecar protocol. Audio capture, provider implementations, persistence, secure key storage, and release packaging are intentionally pending.
+The repository currently contains the cross-platform desktop shell, production recording controls, microphone capture, always-on-top overlay, mock sidecar, and versioned sidecar protocol. Provider implementations, persistence, secure key storage, bundled-sidecar lifecycle, code signing, and release verification are intentionally pending.
+
+## Installer builds
+
+Installer builds must run on their target operating system. Run `npm run tauri:build` on macOS to produce the `.dmg`, or on Windows to produce `.exe` (NSIS) and `.msi` installers. Output is written below `apps/desktop/src-tauri/target/release/bundle/`.
+
+macOS prompts for microphone access on first use. On Windows, microphone access is controlled under **Settings → Privacy & security → Microphone**.
