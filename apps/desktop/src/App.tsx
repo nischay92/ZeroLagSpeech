@@ -1,7 +1,9 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ProviderSettings } from "./components/ProviderSettings";
 import { RecordingOverlay } from "./components/RecordingOverlay";
 import { useRecordingSession } from "./hooks/useRecordingSession";
+import { useRuntimeHealth } from "./hooks/useRuntimeHealth";
 import type { RecordingCommand, RecordingState } from "./lib/recording-events";
 
 const isOverlay = new URLSearchParams(window.location.search).has("overlay");
@@ -15,6 +17,8 @@ function formatDuration(durationMs: number): string {
 
 function MainWorkspace() {
   const recording = useRecordingSession();
+  const runtime = useRuntimeHealth();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { start, stop } = recording;
   const recordingState = useMemo<RecordingState>(
     () => ({
@@ -66,9 +70,25 @@ function MainWorkspace() {
           </span>
           <span>ZeroLag</span>
         </div>
-        <div className={`connection-pill connection-pill--${recording.phase}`}>
-          <span className="connection-dot" />
-          {recording.message}
+        <div className="topbar-actions">
+          <div
+            className={`connection-pill connection-pill--${runtime.health}`}
+            title={runtime.message}
+          >
+            <span className="connection-dot" />
+            {runtime.health === "ready"
+              ? "Runtime ready"
+              : runtime.health === "starting"
+                ? "Starting runtime…"
+                : "Runtime unavailable"}
+          </div>
+          <button
+            className="settings-button"
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+          >
+            Provider settings
+          </button>
         </div>
       </header>
 
@@ -77,7 +97,7 @@ function MainWorkspace() {
           <p className="eyebrow">Local voice intelligence</p>
           <h1>Capture the conversation. Keep your momentum.</h1>
           <p className="lede">
-            ZeroLag records on your Mac and streams normalized audio to the
+            ZeroLag records on your computer and streams normalized audio to the
             local provider sidecar. The floating control stays available while
             you work in any app.
           </p>
@@ -88,12 +108,21 @@ function MainWorkspace() {
                 className="button button--primary"
                 type="button"
                 onClick={() => void recording.start()}
-                disabled={busy}
+                disabled={busy || runtime.health !== "ready"}
+                data-state={recording.phase}
               >
-                <span className="record-icon" aria-hidden="true" />
+                {busy ? (
+                  <span className="button-spinner" aria-hidden="true" />
+                ) : (
+                  <span className="record-icon" aria-hidden="true" />
+                )}
                 {recording.phase === "connecting"
                   ? "Connecting…"
-                  : "Start recording"}
+                  : recording.phase === "stopping"
+                    ? "Finishing…"
+                    : runtime.health === "starting"
+                      ? "Preparing runtime…"
+                      : "Start recording"}
               </button>
             ) : (
               <button
@@ -111,6 +140,13 @@ function MainWorkspace() {
             >
               {formatDuration(recording.durationMs)}
             </div>
+            <span
+              className={`recording-state recording-state--${recording.phase}`}
+            >
+              {recording.phase === "stopping"
+                ? "Finishing safely…"
+                : recording.message}
+            </span>
           </div>
 
           {recording.error ? (
@@ -151,6 +187,13 @@ function MainWorkspace() {
           </footer>
         </aside>
       </section>
+      {settingsOpen ? (
+        <ProviderSettings
+          status={runtime.providers}
+          onChanged={runtime.refreshProviders}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }

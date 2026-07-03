@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "npm run tauri:dev --workspace=@zerolag/desktop",
     "dev:ui": "npm run dev --workspace=@zerolag/desktop",
+    "setup:sidecar": "node scripts/setup-sidecar.mjs",
     "build": "npm run build --workspace=@zerolag/desktop",
     "tauri:build": "npm run tauri:build --workspace=@zerolag/desktop",
     "lint": "npm run lint --workspace=@zerolag/desktop",
