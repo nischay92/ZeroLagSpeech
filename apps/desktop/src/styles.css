@@ -118,6 +118,16 @@ h1 {
   background: #27272a;
 }
 
+.actions select {
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: #18181b;
+  color: #f4f4f5;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .panel {
   max-width: 720px;
   margin-top: 18px;
@@ -149,6 +159,65 @@ h1 {
 
 .latency {
   color: #34d399;
+}
+
+.interim {
+  color: #71717a;
+}
+
+.qa-log {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+
+.qa-item .q {
+  color: #a1a1aa;
+  font-size: 0.95rem;
+}
+
+.qa-item .a {
+  color: #d4d4d8;
+  font-size: 1rem;
+}
+
+.qa-item .tag {
+  color: #34d399;
+  font-size: 0.75rem;
+}
+
+.qa-form {
+  display: flex;
+  gap: 10px;
+}
+
+.qa-form input {
+  flex: 1;
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: #09090b;
+  color: #f4f4f5;
+  font-size: 0.95rem;
+}
+
+.qa-form button {
+  border: 1px solid #2563eb;
+  border-radius: 999px;
+  padding: 10px 20px;
+  background: #2563eb;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.qa-form button:disabled,
+.qa-form input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .providers {

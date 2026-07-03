@@ -27,6 +27,12 @@
     "active": true,
     "targets": ["dmg"],
     "category": "Productivity",
-    "shortDescription": "Local-first voice intelligence"
+    "shortDescription": "Local-first voice intelligence",
+    "externalBin": ["binaries/zerolag-sidecar"],
+    "resources": {
+      "../../sidecar/src": "sidecar/src",
+      "../../sidecar/.bundle-deps/node_modules": "sidecar/node_modules",
+      "../../sidecar/.env": "sidecar/.env"
+    }
   }
 }

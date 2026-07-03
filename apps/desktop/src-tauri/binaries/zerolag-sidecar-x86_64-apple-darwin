@@ -1,0 +1,56 @@
+#!/bin/sh
+# Tauri externalBin wrapper: runs the bundled sidecar source with node.
+# GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
+# that does NOT include wherever node actually lives (nvm, Homebrew, Volta),
+# even though an interactive shell finds it fine — so PATH can't be trusted
+# here. Search common install locations explicitly instead.
+#
+# Only ever invoked inside a packaged .app bundle (Contents/MacOS/<this
+# script> next to Contents/Resources/sidecar/...) — see
+# apps/desktop/src-tauri/src/lib.rs for why dev mode doesn't use this.
+
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+export NOTES_DB_PATH="$HOME/Library/Application Support/ZeroLag/notes.db"
+mkdir -p "$HOME/Library/Application Support/ZeroLag"
+
+find_node() {
+  # 1. Trust PATH if it happens to already resolve (covers cases where
+  #    Tauri/launchd do inherit a fuller PATH).
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return 0
+  fi
+
+  # 2. Common fixed install locations.
+  for candidate in \
+    /opt/homebrew/bin/node \
+    /usr/local/bin/node \
+    /usr/local/opt/node/bin/node \
+    "$HOME/.volta/bin/node"
+  do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  # 3. nvm: no stable "current" path outside shell functions, so pick the
+  #    highest installed version directory.
+  if [ -d "$HOME/.nvm/versions/node" ]; then
+    latest=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)
+    if [ -n "$latest" ] && [ -x "$HOME/.nvm/versions/node/$latest/bin/node" ]; then
+      echo "$HOME/.nvm/versions/node/$latest/bin/node"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+NODE_BIN="$(find_node)"
+if [ -z "$NODE_BIN" ]; then
+  echo "zerolag-sidecar: could not locate a node executable (checked PATH, Homebrew, Volta, nvm)" >&2
+  exit 127
+fi
+
+exec "$NODE_BIN" "$DIR/Resources/sidecar/src/server.js"

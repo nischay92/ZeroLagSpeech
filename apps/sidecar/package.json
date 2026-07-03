@@ -1,0 +1,19 @@
+{
+  "name": "@zerolag/sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "stage-deps": "rm -rf .bundle-deps && mkdir -p .bundle-deps && cp package.json .bundle-deps/ && cd .bundle-deps && npm install --omit=dev --no-audit --no-fund"
+  },
+  "dependencies": {
+    "@cerebras/cerebras_cloud_sdk": "^1.0.0",
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

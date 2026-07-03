@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/desktop"
+    "apps/desktop",
+    "apps/sidecar"
   ],
   "scripts": {
     "dev": "npm run tauri:dev --workspace=@zerolag/desktop",
     "dev:ui": "npm run dev --workspace=@zerolag/desktop",
+    "dev:sidecar": "npm run dev --workspace=@zerolag/sidecar",
     "build": "npm run build --workspace=@zerolag/desktop",
-    "tauri:build": "npm run tauri:build --workspace=@zerolag/desktop",
+    "tauri:build": "npm run stage-deps --workspace=@zerolag/sidecar && npm run tauri:build --workspace=@zerolag/desktop",
     "lint": "npm run lint --workspace=@zerolag/desktop",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
