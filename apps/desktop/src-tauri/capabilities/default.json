@@ -2,12 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default desktop window permissions",
-  "windows": ["main"],
-  "permissions": [
-    "core:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/zerolag-sidecar", "sidecar": true }]
-    }
-  ]
+  "windows": ["main", "recorder-overlay"],
+  "permissions": ["core:default"]
 }

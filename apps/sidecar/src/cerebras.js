@@ -1,14 +1,28 @@
 const Cerebras = require("@cerebras/cerebras_cloud_sdk").default;
 
-const client = new Cerebras({ apiKey: process.env.CEREBRAS_API_KEY, maxRetries: 0 });
 const MODEL = "gpt-oss-120b";
+
+// Constructed lazily (not at module load) so a missing key surfaces as a
+// normal per-call error the server can catch and report, rather than
+// crashing the whole sidecar process at startup — matters for first-run
+// users who haven't saved a Cerebras key in ProviderSettings yet.
+let client = null;
+function getClient() {
+  if (!client) {
+    if (!process.env.CEREBRAS_API_KEY) {
+      throw new Error("CEREBRAS_API_KEY is not configured");
+    }
+    client = new Cerebras({ apiKey: process.env.CEREBRAS_API_KEY, maxRetries: 0 });
+  }
+  return client;
+}
 
 // `newTranscript` is only the text spoken since the last summary (not the
 // whole session) — keeps token usage roughly constant per call regardless
 // of how long the session runs, so long sessions don't blow a tokens/min
 // rate limit. `previousSummary` carries prior context forward instead.
 async function summarize(newTranscript, previousSummary) {
-  const response = await client.chat.completions.create({
+  const response = await getClient().chat.completions.create({
     model: MODEL,
     messages: [
       {
@@ -26,7 +40,7 @@ async function summarize(newTranscript, previousSummary) {
 }
 
 async function answerQuestion(transcript, question) {
-  const response = await client.chat.completions.create({
+  const response = await getClient().chat.completions.create({
     model: MODEL,
     messages: [
       {
@@ -46,7 +60,7 @@ async function answerQuestion(transcript, question) {
 // Called periodically to auto-detect and answer questions or information
 // requests that appeared in newly finalized transcript text, in real time.
 async function respondIfQuestion(transcriptSoFar, latestSegment) {
-  const response = await client.chat.completions.create({
+  const response = await getClient().chat.completions.create({
     model: MODEL,
     messages: [
       {

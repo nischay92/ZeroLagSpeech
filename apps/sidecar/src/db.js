@@ -1,16 +1,20 @@
 const fs = require("fs");
 const path = require("path");
-const Database = require("better-sqlite3");
+// node:sqlite instead of better-sqlite3 — a native addon can't be reliably
+// extracted from a pkg-compiled single-binary snapshot (verified: pkg
+// doesn't auto-locate better-sqlite3's .node file at runtime). node:sqlite
+// ships built into Node itself, so there's no native module to bundle.
+const { DatabaseSync } = require("node:sqlite");
 
 // In a packaged app, NOTES_DB_PATH points at a user-writable location (set
-// by the externalBin wrapper script) since the app bundle itself isn't
+// by Rust when it spawns the sidecar) since the app bundle itself isn't
 // writable. In local dev, this env var is unset and notes.db just lives
 // next to the source, as before.
 const dbPath = process.env.NOTES_DB_PATH || path.join(__dirname, "..", "notes.db");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-const db = new Database(dbPath);
-db.pragma("journal_mode = WAL");
+const db = new DatabaseSync(dbPath);
+db.exec("PRAGMA journal_mode = WAL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (

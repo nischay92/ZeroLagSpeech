@@ -1,7 +1,16 @@
-const path = require("path");
-// Resolve .env relative to this file, not process.cwd() — the working
-// directory isn't guaranteed when Tauri spawns this as a sidecar process.
-require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+// Only load .env for standalone dev/testing — never inside a pkg-compiled
+// binary. Two reasons: (1) the packaged app always gets its config via env
+// vars set directly by Rust from the OS keychain, so it's never needed
+// there, and (2) critically, pkg's static analysis bundles any file
+// reachable via a statically-resolvable fs path as a snapshot asset —
+// which previously meant the real apps/sidecar/.env (with live API keys)
+// was getting embedded straight into the compiled binary and loaded
+// regardless of what environment the process was actually launched with.
+// `process.pkg` only exists inside a pkg-compiled binary.
+if (!process.pkg) {
+  const path = require("path");
+  require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+}
 const express = require("express");
 const { WebSocketServer } = require("ws");
 
@@ -12,16 +21,24 @@ const elevenlabs = require("./stt/elevenlabs");
 
 for (const key of ["DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY", "CEREBRAS_API_KEY"]) {
   if (!process.env[key]) {
-    console.warn(`Warning: ${key} is not set in .env — related features will fail.`);
+    console.warn(`Warning: ${key} is not set — related features will fail.`);
   }
 }
 
-const PORT = process.env.SIDECAR_PORT || 43110;
-const HOST = "127.0.0.1"; // loopback only, per docs/sidecar-protocol.md
+const HOST = process.env.ZEROLAG_SIDECAR_HOST || "127.0.0.1";
+const PORT = process.env.ZEROLAG_SIDECAR_PORT || 43110;
+const TOKEN = process.env.ZEROLAG_SIDECAR_TOKEN || "zerolag-development-token";
+const ENVIRONMENT = process.env.ZEROLAG_SIDECAR_ENVIRONMENT || "development";
+const PROTOCOL_VERSION = "1.0";
 const TICK_INTERVAL_MS = 6000;
 const CEREBRAS_TIMEOUT_MS = 12000;
 const RATE_LIMIT_COOLDOWN_MS = 45000;
 const CONTEXT_CHAR_LIMIT = 3000; // caps per-call token usage regardless of session length
+
+if (ENVIRONMENT === "packaged" && TOKEN === "zerolag-development-token") {
+  console.error("Packaged sidecars require a per-launch authentication token. Refusing to start.");
+  process.exit(1);
+}
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
@@ -46,13 +63,32 @@ function cooldownMsFor(err) {
   return RATE_LIMIT_COOLDOWN_MS;
 }
 
+function isLoopbackHost(host) {
+  if (!host) return false;
+  return host === "127.0.0.1" || host === "::1" || host === "::ffff:127.0.0.1" || host === "localhost";
+}
+
+const ALLOWED_ORIGINS = new Set([
+  "http://127.0.0.1:1420",
+  "http://localhost:1420",
+  "http://tauri.localhost",
+  "tauri://localhost",
+]);
+
 const app = express();
 
-// Loopback-only dev server: the desktop UI is served from a different
-// origin (Vite on localhost:1420, or a tauri:// origin once packaged), so
-// REST calls need CORS enabled. No cookies/credentials are involved.
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  if (!isLoopbackHost(req.socket.remoteAddress?.replace(/^::ffff:/, ""))) {
+    return res.status(403).json({ detail: "Loopback access only" });
+  }
+  next();
+});
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -64,10 +100,10 @@ app.use(express.json());
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
+    protocol_version: PROTOCOL_VERSION,
     providers: {
-      deepgram: Boolean(process.env.DEEPGRAM_API_KEY),
-      elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
-      cerebras: Boolean(process.env.CEREBRAS_API_KEY),
+      speech: process.env.DEEPGRAM_API_KEY || process.env.ELEVENLABS_API_KEY ? "ready" : "unavailable",
+      inference: process.env.CEREBRAS_API_KEY ? "ready" : "unavailable",
     },
   });
 });
@@ -99,7 +135,7 @@ app.post("/sessions/:session_id/ask", async (req, res) => {
 });
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`Sidecar listening on http://${HOST}:${PORT}`);
+  console.log(`Sidecar listening on http://${HOST}:${PORT} (${ENVIRONMENT})`);
 });
 
 // ws's `path` option only does exact string matching, not patterns, so the
@@ -109,7 +145,13 @@ const wss = new WebSocketServer({ noServer: true });
 
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
-  if (!SESSION_PATH_RE.test(url.pathname)) {
+  const remoteHost = socket.remoteAddress?.replace(/^::ffff:/, "");
+  if (!SESSION_PATH_RE.test(url.pathname) || !isLoopbackHost(remoteHost)) {
+    socket.destroy();
+    return;
+  }
+  const token = url.searchParams.get("token") || "";
+  if (token !== TOKEN) {
     socket.destroy();
     return;
   }
@@ -121,27 +163,32 @@ server.on("upgrade", (req, socket, head) => {
 wss.on("connection", (browserWs, req) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const sessionId = SESSION_PATH_RE.exec(url.pathname)[1];
+  // Provider selection isn't part of the base protocol (single "speech"
+  // provider slot in /health) — default to Deepgram, with an optional
+  // ?provider= override for testing ElevenLabs directly.
   const provider = url.searchParams.get("provider") === "elevenlabs" ? "elevenlabs" : "deepgram";
   const providerModule = provider === "elevenlabs" ? elevenlabs : deepgram;
 
   db.createSession(sessionId, provider);
-  console.log(`[session ${sessionId}] started (${provider})`);
+  console.log(`[session ${sessionId}] connected (${provider})`);
 
   let sequence = 0;
   const sendEvent = (event, data) => {
     if (browserWs.readyState !== browserWs.OPEN) return;
-    sequence += 1;
     browserWs.send(
       JSON.stringify({
+        protocol_version: PROTOCOL_VERSION,
         event,
         session_id: sessionId,
-        sequence,
+        sequence: sequence++,
         timestamp: new Date().toISOString(),
         data,
       })
     );
   };
 
+  let started = false;
+  let upstream = null;
   let buffer = "";
   let latestInterim = "";
   let pendingQuestionText = "";
@@ -151,42 +198,63 @@ wss.on("connection", (browserWs, req) => {
   let ticking = false;
   let cooldownUntil = 0;
 
-  const upstream = providerModule.connect({
-    onOpen() {
-      sendEvent("session.connected", { provider });
-    },
-    onTranscript({ type, text }) {
-      sendEvent("transcript.segment", { text, is_final: type === "final" });
-      if (type === "final") {
-        buffer += (buffer ? " " : "") + text;
-        pendingQuestionText += (pendingQuestionText ? " " : "") + text;
-        latestInterim = "";
-        db.addTranscript(sessionId, text);
-        console.log(`[session ${sessionId}] final: "${text}" (buffer is now ${buffer.length} chars)`);
-      } else {
-        latestInterim = text;
+  sendEvent("session.connected", { sidecar: "ready", provider });
+
+  function connectUpstream() {
+    upstream = providerModule.connect({
+      onOpen() {
+        // no-op: session.status "streaming" already sent optimistically on "start"
+      },
+      onTranscript({ type, text }) {
+        sendEvent("transcript.segment", {
+          segment_id: `${sessionId}-${sequence}`,
+          text,
+          is_final: type === "final",
+        });
+        if (type === "final") {
+          buffer += (buffer ? " " : "") + text;
+          pendingQuestionText += (pendingQuestionText ? " " : "") + text;
+          latestInterim = "";
+          db.addTranscript(sessionId, text);
+        } else {
+          latestInterim = text;
+        }
+      },
+      onError(err) {
+        console.error(`[${provider}] upstream error:`, err.message || err);
+        sendEvent("error", { code: "provider_error", message: String(err.message || err) });
+      },
+      onClose() {
+        sendEvent("session.status", { status: "upstream_closed" });
+      },
+    });
+  }
+
+  async function finalizeSession() {
+    const newFinalText = buffer.slice(summarizedUpToLength);
+    const textToSummarize = (newFinalText + " " + latestInterim).trim();
+    if (textToSummarize) {
+      try {
+        const summary = await withTimeout(
+          cerebras.summarize(textToSummarize.slice(-CONTEXT_CHAR_LIMIT), previousSummary),
+          CEREBRAS_TIMEOUT_MS,
+          "summarize"
+        );
+        db.addSummary(sessionId, summary);
+        sendEvent("inference.result", { kind: "notes", text: summary });
+      } catch (err) {
+        console.error(`[session ${sessionId}] final summarize failed:`, err.message || err);
       }
-    },
-    onError(err) {
-      console.error(`[${provider}] upstream error:`, err.message || err);
-      sendEvent("error", { message: String(err.message || err) });
-    },
-    onClose() {
-      sendEvent("session.status", { status: "upstream_closed" });
-    },
-  });
+    }
+    sendEvent("session.completed", { audio_bytes: buffer.length });
+  }
 
   // Single sequential tick handles both auto-Q&A and notes summary, so at
   // most 2 Cerebras calls go out per interval instead of one per finalized
   // transcript segment — avoids blowing through the per-minute rate limit.
   const tick = setInterval(async () => {
-    if (ticking || closed) return;
-    if (Date.now() < cooldownUntil) {
-      console.log(
-        `[session ${sessionId}] cooling down after rate limit, ${Math.ceil((cooldownUntil - Date.now()) / 1000)}s left`
-      );
-      return;
-    }
+    if (ticking || closed || !started) return;
+    if (Date.now() < cooldownUntil) return;
     ticking = true;
 
     if (pendingQuestionText) {
@@ -219,15 +287,10 @@ wss.on("connection", (browserWs, req) => {
     }
 
     if (!closed && Date.now() >= cooldownUntil) {
-      // Only the text since the last summary is sent, not the whole
-      // session — otherwise per-call token usage grows unboundedly as the
-      // session runs and eventually blows a tokens/minute rate limit even
-      // with very few calls per minute.
       const newFinalText = buffer.slice(summarizedUpToLength);
       const textToSummarize = (newFinalText + " " + latestInterim).trim();
       if (textToSummarize) {
         const cappedText = textToSummarize.slice(-CONTEXT_CHAR_LIMIT);
-        console.log(`[session ${sessionId}] summarizing ${cappedText.length} new chars...`);
         const startedAt = Date.now();
         try {
           const summary = await withTimeout(
@@ -240,7 +303,6 @@ wss.on("connection", (browserWs, req) => {
           summarizedUpToLength = buffer.length;
           db.addSummary(sessionId, summary);
           sendEvent("inference.result", { kind: "notes", text: summary });
-          console.log(`[session ${sessionId}] notes updated`);
         } catch (err) {
           console.error(`[session ${sessionId}] summarize failed:`, err.message || err);
           if (isRateLimitError(err)) {
@@ -251,7 +313,7 @@ wss.on("connection", (browserWs, req) => {
               message: `Cerebras rate limited, pausing ${Math.ceil(cooldownMs / 1000)}s...`,
             });
           } else {
-            sendEvent("error", { message: String(err.message || err) });
+            sendEvent("error", { code: "inference_error", message: String(err.message || err) });
           }
         }
       }
@@ -262,19 +324,40 @@ wss.on("connection", (browserWs, req) => {
 
   browserWs.on("message", (data, isBinary) => {
     if (isBinary) {
-      upstream.sendAudio(data);
+      if (!started) {
+        sendEvent("error", { code: "session_not_started", message: "Send start before audio" });
+        return;
+      }
+      upstream?.sendAudio(data);
       return;
     }
-    // Graceful client-initiated stop: send session.completed before the
-    // socket closes, since a "close" event fires too late to deliver it.
+
+    let command;
     try {
-      const msg = JSON.parse(data.toString());
-      if (msg.event === "session.stop") {
-        sendEvent("session.completed", {});
-        browserWs.close();
-      }
+      command = JSON.parse(data.toString());
     } catch {
-      // ignore malformed control messages
+      sendEvent("error", { code: "invalid_command", message: "Malformed command" });
+      return;
+    }
+
+    switch (command.type) {
+      case "start":
+        if (!started) {
+          started = true;
+          connectUpstream();
+          sendEvent("session.status", { status: "streaming" });
+        }
+        break;
+      case "stop":
+        finalizeSession().finally(() => {
+          browserWs.close(1000);
+        });
+        break;
+      case "ping":
+        sendEvent("session.status", { status: "alive" });
+        break;
+      default:
+        sendEvent("error", { code: "invalid_command", message: "Unknown command type" });
     }
   });
 
@@ -282,7 +365,7 @@ wss.on("connection", (browserWs, req) => {
     if (closed) return;
     closed = true;
     clearInterval(tick);
-    upstream.close();
+    upstream?.close();
     db.endSession(sessionId);
   };
 

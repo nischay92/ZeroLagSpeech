@@ -10,63 +10,59 @@ Ownership:
 - D: Deepgram speech and transcription integration
 - G: Cerebras inference integration
 
-**Implementation note:** this is implemented in Node.js, not Python as the
-root README's architecture diagram originally described. The wire contract
-(loopback HTTP/WS, JSON event envelope) doesn't require any particular
-language — Node was chosen because it's what D/G had already built and
-verified standalone. Flag/update the root README's "Bundled Python sidecar"
-line when this lands, since it's a real language pivot other teammates
-should be aware of.
+**Implementation note:** this is Node.js, not Python. A parallel Python
+scaffold (`feature/sidecar-foundation`) landed on `main` around the same
+time this was built — it implements the same wire contract (dynamic port,
+per-launch token, loopback checks) but with **mock data only**
+(`run_mock_session` returns fake transcripts/inference; `/health` reports
+`"speech": "mock", "inference": "mock"`). This Node implementation has real
+Deepgram/ElevenLabs/Cerebras integration, already exercised and debugged
+against live traffic (rate limits, timeouts, per-call token budgets,
+packaging into a working `.dmg`). Given that, this replaces the Python
+sidecar rather than sitting alongside it — same protocol contract, same
+security model (dynamic port, per-launch token, OS keychain credentials),
+different language. Worth a heads-up to D/G/whoever owns
+`feature/sidecar-foundation` before this merges anywhere shared, since it
+removes their just-merged scaffold.
 
 ## Setup
 
 ```bash
 cd apps/sidecar
 npm install
-cp .env.example .env   # fill in DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, CEREBRAS_API_KEY
-npm start
 ```
 
-Binds to `127.0.0.1:43110` by default (override with `SIDECAR_PORT`).
+No `.env` needed for normal use — in the packaged app, Tauri passes
+`DEEPGRAM_API_KEY` / `ELEVENLABS_API_KEY` / `CEREBRAS_API_KEY` as env vars
+sourced from the OS keychain (see `apps/desktop/src-tauri/src/lib.rs`).
+For standalone local testing outside the desktop app, copy `.env.example`
+to `.env` and fill in keys, or export the same env vars manually along
+with `ZEROLAG_SIDECAR_PORT` / `ZEROLAG_SIDECAR_TOKEN`.
+
+```bash
+ZEROLAG_SIDECAR_PORT=43110 ZEROLAG_SIDECAR_TOKEN=local-development-token npm start
+```
+
+Binds to `127.0.0.1` only — never `0.0.0.0`.
 
 ## What's implemented vs. the documented contract
 
-Implemented per `docs/sidecar-protocol.md`:
+Implements `docs/sidecar-protocol.md` in full: dynamic port (env-supplied
+by Rust), per-launch token required as a `?token=` query param on the WS
+connection (rejected with close code 1008 if missing/wrong), loopback-only
+request validation, the `protocol_version: "1.0"` envelope field,
+`sequence` starting at 0, and the `start`/`stop`/`ping` JSON command
+protocol gating when audio is accepted.
 
-- `GET /health` — provider readiness booleans.
-- `WS /ws/session/{session_id}` — session_id is client-generated (e.g.
-  `crypto.randomUUID()`) and passed in the path, per the doc.
-- Outbound event envelope `{ event, session_id, sequence, timestamp, data }`
-  with a per-connection incrementing `sequence`.
-- All seven planned event types are emitted: `session.connected`,
-  `session.status`, `transcript.segment`, `inference.result`,
-  `latency.updated`, `session.completed`, `error`.
-- Loopback-only binding (`app.listen(PORT, "127.0.0.1", ...)`).
+One legitimate extension beyond the base doc: `inference.result.data` uses
+`{ kind: "notes" | "qa", text, question?, source? }` to cover rolling
+notes, auto-detected spoken questions, and manually typed questions
+through one event type — the Python scaffold doesn't have this yet since
+it doesn't do real inference.
 
-Extensions beyond what the doc specified (the doc explicitly left these
-open, to be versioned before real provider implementations land — see
-`docs/sidecar-protocol.md` for the full writeup):
-
-- `?provider=deepgram|elevenlabs` query param on the WS URL selects the STT
-  provider.
-- Inbound audio is raw binary WS frames (PCM16, 16kHz mono), not JSON.
-- `inference.result.data` uses `{ kind: "notes" | "qa", text, question?, source? }`
-  to cover rolling notes, auto-detected spoken questions, and manually
-  typed questions through one event type.
-- `session.completed` requires a client-sent `{"event":"session.stop"}`
-  text frame before closing — a bare WS close doesn't reach the client in
-  time to deliver a final event, so this is the graceful-stop handshake.
-- Two REST endpoints beyond the documented minimum: `GET /sessions/:id`
-  (transcript/notes/Q&A history) and `POST /sessions/:id/ask` (manual
-  Q&A), needed for session history and the typed-question chat box.
-
-**Not implemented yet (intentionally):** the packaged-build one-time
-session token / auth requirement from the doc. The Tauri shell doesn't
-spawn or manage the sidecar process yet (no `externalBin` config), so
-there's no token-passing mechanism to hook into — that's milestone #3 in
-the root README, owned by the desktop-shell side. This sidecar currently
-only serves the documented dev-mode transport
-(`http://127.0.0.1:43110` / `ws://127.0.0.1:43110`, no auth).
+REST endpoints beyond `GET /health`: `GET /sessions`, `GET /sessions/:id`
+(transcript/notes/Q&A history), `POST /sessions/:id/ask` (manual Q&A) —
+needed for session history and the typed-question chat box in the UI.
 
 ## Files
 
@@ -80,8 +76,6 @@ only serves the documented dev-mode transport
   `{ type: "partial" | "final", text }` shape so `server.js` doesn't need
   provider-specific branching.
 
-This was ported from a standalone Node backend that was built and verified
-independently (STT auth, Cerebras calls, rate-limit handling, notes-freeze
-and 429-storm bugs already found and fixed there) before being adapted to
-this protocol — see that project's `PROJECT_NOTES.md` for the debugging
-history if similar issues show up here.
+Packaged as a single standalone binary (no system Node required) — see
+the build script referenced from the root `package.json`'s `tauri:build`
+chain.

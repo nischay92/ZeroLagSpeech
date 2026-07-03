@@ -1,32 +1,102 @@
-# Desktop–Sidecar Protocol
+# Desktop–Sidecar Protocol v1
 
-ZeroLag Desktop communicates with its bundled Python sidecar over loopback only.
+ZeroLag Desktop communicates with its bundled sidecar over loopback only. This document is the integration contract for the desktop, Deepgram, and Cerebras owners. The sidecar implementation is Node.js (see `apps/sidecar/README.md` for why) — the contract below is language-agnostic and applies regardless.
 
-## Transport
+## Transport and security
 
-- HTTP development URL: `http://127.0.0.1:43110`
-- WebSocket development URL: `ws://127.0.0.1:43110`
-- Packaged builds will choose an available loopback port and pass a one-time session token to the sidecar.
-- The sidecar must reject non-loopback traffic and unauthenticated packaged-app requests.
+- Development HTTP URL: `http://127.0.0.1:43110`
+- Development WebSocket URL: `ws://127.0.0.1:43110`
+- The process must never bind to `0.0.0.0` or a LAN interface.
+- Packaged builds choose an available loopback port.
+- Tauri generates a random per-launch token and passes it to the child process.
+- Every WebSocket connection supplies that token as the `token` query parameter.
+- The token must never be persisted, logged, or reused across launches.
 
-## Initial endpoints
+The development token exists only for local testing. Packaged mode refuses to start with the development default.
 
-- `GET /health` — sidecar and provider readiness
-- `WS /ws/session/{session_id}` — audio, transcript, inference, and lifecycle events
+## Audio contract
+
+The desktop sends raw binary WebSocket messages with this fixed format:
+
+```json
+{
+  "encoding": "pcm_s16le",
+  "sample_rate_hz": 16000,
+  "channels": 1
+}
+```
+
+Audio is signed 16-bit little-endian mono PCM at 16 kHz. A JSON `start` command must be sent before any binary frames.
+
+## Endpoints
+
+### `GET /health`
+
+Returns protocol and provider readiness:
+
+```json
+{
+  "status": "ok",
+  "protocol_version": "1.0",
+  "providers": {
+    "speech": "mock",
+    "inference": "mock"
+  }
+}
+```
+
+### `WS /ws/session/{session_id}?token={launch_token}`
+
+Carries control commands, binary audio, and ordered events for one session.
+
+## Desktop commands
+
+Start streaming:
+
+```json
+{
+  "type": "start",
+  "audio": {
+    "encoding": "pcm_s16le",
+    "sample_rate_hz": 16000,
+    "channels": 1
+  }
+}
+```
+
+Stop and finalize:
+
+```json
+{ "type": "stop" }
+```
+
+Connection liveness:
+
+```json
+{ "type": "ping" }
+```
 
 ## Event envelope
 
 ```json
 {
+  "protocol_version": "1.0",
   "event": "transcript.segment",
-  "session_id": "uuid",
-  "sequence": 1,
-  "timestamp": "2026-07-02T00:00:00Z",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "sequence": 2,
+  "timestamp": "2026-07-03T00:00:00Z",
   "data": {}
 }
 ```
 
-Planned event types:
+Rules:
+
+- `sequence` starts at zero and increases once per emitted event.
+- `timestamp` is UTC ISO 8601.
+- Unknown commands produce an `error` event without crashing the connection.
+- Provider-specific payloads stay behind normalized shared schemas.
+
+Event types:
 
 - `session.connected`
 - `session.status`
@@ -36,57 +106,18 @@ Planned event types:
 - `session.completed`
 - `error`
 
-Provider-specific payloads must remain behind stable shared response schemas. This contract will be versioned before D and G merge real provider implementations.
+## Provider boundaries
 
-## Implemented extensions (D/G sidecar, Node implementation)
+D maps Deepgram output into `transcript.segment` events. G maps Cerebras output into `inference.result` events. Neither provider adapter changes the transport envelope or sends provider credentials to the desktop UI.
 
-The points below were left open in the initial contract above. They're
-implemented in `apps/sidecar` as of the first real provider integration;
-listed here so the versioning this doc calls for actually happens instead
-of living only in code.
+Any breaking protocol change requires a new protocol version and coordinated updates to the sidecar and TypeScript schemas.
 
-- **Provider selection**: `?provider=deepgram|elevenlabs` query parameter
-  on the `WS /ws/session/{session_id}` URL. Defaults to `deepgram`.
-- **Inbound audio transport**: raw binary WebSocket frames, PCM16 mono at
-  16kHz, batched client-side into ~200ms chunks. Not part of the JSON
-  event envelope — binary frames on the same connection.
-- **`inference.result` data shape**:
-  `{ kind: "notes" | "qa", text: string, question?: string, source?: "auto" | "manual" }`.
-  One event type covers three cases: the rolling notes summary
-  (`kind: "notes"`, emitted periodically), a question auto-detected in
-  spoken transcript (`kind: "qa", source: "auto"`), and a manually typed
-  question via the REST ask endpoint (`kind: "qa", source: "manual"`).
-- **`latency.updated` data shape**: `{ cerebrasLatencyMs: number }`,
-  emitted after each Cerebras call (notes summary or Q&A).
-- **`session.completed` handshake**: since a WS `close` event fires too
-  late on the server to deliver a final message, the client must send a
-  text frame `{"event":"session.stop"}` before closing; the sidecar
-  responds with `session.completed` and then closes the socket itself. A
-  bare client-side close still works for cleanup, it just won't produce a
-  `session.completed` event on the wire.
-- **Additional REST endpoints** beyond `GET /health`:
-  - `GET /sessions` — list all sessions.
-  - `GET /sessions/{session_id}` — full transcript/notes/Q&A history for
-    one session.
-  - `POST /sessions/{session_id}/ask` `{ question }` → `{ answer }` —
-    manual Q&A, grounded in that session's stored transcript.
-- **CORS**: REST endpoints reflect the request's `Origin` header and allow
-  `GET, POST, OPTIONS`. Needed because the desktop UI's dev server
-  (`http://localhost:1420`) and the sidecar (`http://127.0.0.1:43110`) are
-  different origins even on the same machine. WebSocket connections are
-  unaffected (not subject to CORS), so this only matters for the REST
-  endpoints above.
+## Implemented extension: `inference.result` data shape
 
-## Known gap: packaged-app authentication
+The base contract above doesn't specify what goes in `inference.result.data` beyond "provider-specific payloads stay behind normalized shared schemas." The Node sidecar (`apps/sidecar`) uses:
 
-The "one-time session token" and "reject unauthenticated packaged-app
-requests" requirements above are **not implemented yet**. The Tauri shell
-doesn't currently spawn or manage the sidecar process (no `externalBin`
-config, no token-passing code), so there's no mechanism on the desktop
-side to generate or pass such a token. This is tracked against milestone
-#3 in the root README ("Implement and package the Python [sic] sidecar
-lifecycle") and needs design coordination with the desktop-shell owner
-before implementation, per this repo's rule that auth changes to the
-sidecar require coordination. Today the sidecar only serves the
-documented dev-mode transport with no auth, which is fine for local dev
-but must be closed before packaging.
+```json
+{ "kind": "notes" | "qa", "text": "string", "question": "string?", "source": "auto" | "manual" }
+```
+
+One event type covers three cases: the rolling notes summary (`kind: "notes"`, emitted periodically as the session progresses), a question auto-detected in spoken transcript (`kind: "qa", source: "auto"`), and a manually typed question via `POST /sessions/:id/ask` (`kind: "qa", source: "manual"`). ElevenLabs is also supported as a second speech provider alongside Deepgram (`?provider=deepgram|elevenlabs` was the original selection mechanism from an earlier contract draft — provider selection now happens via env var at sidecar launch, matching the dynamic-port/token model above).
