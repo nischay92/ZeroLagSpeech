@@ -22,19 +22,21 @@ The earlier hosted-web implementation remains recoverable from Git history but i
 ZeroLag Desktop
 ├── Tauri 2 native shell
 ├── React + Vite + TypeScript UI
-├── Bundled Python sidecar
-│   ├── Deepgram speech integration
+├── Bundled Node.js sidecar (packaged as a standalone binary via pkg)
+│   ├── Deepgram + ElevenLabs speech integration
 │   └── Cerebras inference integration
-├── Local persistence (planned)
-├── In-process session state (planned)
-└── OS-secure provider credentials (planned)
+├── Local SQLite persistence (sessions, transcripts, notes, Q&A)
+├── In-process session state
+└── OS-secure provider credentials (macOS Keychain / Windows Credential Manager)
 ```
+
+See `SETUP.md` for full setup/build instructions.
 
 Repository layout:
 
 - `apps/desktop` — Tauri desktop shell and React UI
 - `apps/desktop/src-tauri` — native Rust application and bundle configuration
-- `apps/sidecar` — reserved Python backend owned by the provider maintainers
+- `apps/sidecar` — Node.js backend implementing the sidecar protocol (owned by the provider maintainers)
 - `docs/sidecar-protocol.md` — versioned UI-to-sidecar communication contract
 
 ## Team ownership
@@ -56,16 +58,17 @@ Install Rust through <https://rustup.rs> or a supported system package manager.
 
 ## Development setup
 
+See `SETUP.md` for the full, tested walkthrough. Quick version:
+
 ```bash
 git clone https://github.com/nischay92/ZeroLagSpeech.git
 cd ZeroLagSpeech
-git checkout desktop-mvp
+git checkout backend-integration
 npm install
-npm run setup:sidecar
 npm run dev
 ```
 
-`npm run dev` starts Vite, launches the authenticated local sidecar on an available loopback port, and opens the native Tauri windows. The sidecar stops automatically when ZeroLag exits.
+`npm run dev` starts Vite, launches the authenticated local Node sidecar on an available loopback port, and opens the native Tauri windows. The sidecar stops automatically when ZeroLag exits — no second terminal needed.
 
 To work on the UI in a browser without launching Tauri:
 
@@ -73,20 +76,7 @@ To work on the UI in a browser without launching Tauri:
 npm run dev:ui
 ```
 
-The browser-only development URL is <http://127.0.0.1:1420>.
-
-To set up the local Python sidecar manually instead of using `npm run setup:sidecar`:
-
-```bash
-cd apps/sidecar
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-cd apps/sidecar
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-```
-
-You do not need to run the sidecar in a second terminal. The desktop runtime owns its process, random port, and per-launch authentication token.
+The browser-only development URL is <http://127.0.0.1:1420>. In this mode, start the sidecar yourself with `npm run dev:sidecar` in a second terminal.
 
 Provider API keys are configured from **Provider settings** inside the desktop app. They are stored in macOS Keychain or Windows Credential Manager; they are never written to `.env`, local storage, or frontend assets.
 
@@ -94,15 +84,9 @@ Provider API keys are configured from **Provider settings** inside the desktop a
 
 ```bash
 npm run lint
-npm run format:check
 npm run build
-cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-
-cd apps/sidecar
-.venv/bin/ruff check .
-.venv/bin/ruff format --check .
-.venv/bin/pytest
+cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
 ## Desktop security rules
@@ -115,20 +99,21 @@ cd apps/sidecar
 
 ## Planned milestones
 
-1. Validate the Tauri macOS shell and development workflow.
+1. Validate the Tauri macOS shell and development workflow. (complete)
 2. Add cross-platform microphone capture, permissions, and floating recording controls. (complete)
-3. Implement and package the Python sidecar lifecycle.
-4. Integrate Deepgram speech streaming.
-5. Integrate Cerebras inference.
-6. Add local sessions, transcripts, and artifacts.
-7. Build the live transcript and AI workspace.
-8. Add secure provider settings.
-9. Package and verify the macOS `.dmg`.
+3. Implement and package the sidecar lifecycle. (complete — Node.js, packaged as a standalone binary via pkg)
+4. Integrate Deepgram speech streaming. (complete, plus ElevenLabs as a second provider)
+5. Integrate Cerebras inference. (complete — rolling notes summary + real-time Q&A)
+6. Add local sessions, transcripts, and artifacts. (complete — SQLite)
+7. Build the live transcript and AI workspace. (complete)
+8. Add secure provider settings. (complete)
+9. Package and verify the macOS `.dmg`. (complete)
 10. Package and verify Windows `.exe`/`.msi` installers.
+11. Code signing / notarization (currently unsigned — see `SETUP.md`'s Keychain prompt note).
 
 ## Current status
 
-The repository currently contains the cross-platform desktop shell, production recording controls, microphone capture, always-on-top overlay, automatic authenticated development-sidecar lifecycle, native secure provider credentials, mock providers, and versioned sidecar protocol. Provider integration, persistence, packaged PyInstaller binaries, code signing, and release verification remain pending.
+The repository contains the cross-platform desktop shell, production recording controls, microphone capture, always-on-top overlay, automatic authenticated sidecar lifecycle (dev and packaged), native secure provider credentials, real Deepgram/ElevenLabs/Cerebras provider integration, SQLite persistence, and the versioned sidecar protocol. Windows packaging, code signing, and release verification remain pending. See `SETUP.md` for the full setup/build guide.
 
 ## Installer builds
 

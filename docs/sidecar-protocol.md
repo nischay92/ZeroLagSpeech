@@ -1,6 +1,6 @@
 # Desktop–Sidecar Protocol v1
 
-ZeroLag Desktop communicates with its bundled Python sidecar over loopback only. This document is the integration contract for the desktop, Deepgram, and Cerebras owners.
+ZeroLag Desktop communicates with its bundled sidecar over loopback only. This document is the integration contract for the desktop, Deepgram, and Cerebras owners. The sidecar implementation is Node.js (see `apps/sidecar/README.md` for why) — the contract below is language-agnostic and applies regardless.
 
 ## Transport and security
 
@@ -110,4 +110,14 @@ Event types:
 
 D maps Deepgram output into `transcript.segment` events. G maps Cerebras output into `inference.result` events. Neither provider adapter changes the transport envelope or sends provider credentials to the desktop UI.
 
-Any breaking protocol change requires a new protocol version and coordinated updates to the Python and TypeScript schemas.
+Any breaking protocol change requires a new protocol version and coordinated updates to the sidecar and TypeScript schemas.
+
+## Implemented extension: `inference.result` data shape
+
+The base contract above doesn't specify what goes in `inference.result.data` beyond "provider-specific payloads stay behind normalized shared schemas." The Node sidecar (`apps/sidecar`) uses:
+
+```json
+{ "kind": "notes" | "qa", "text": "string", "question": "string?", "source": "auto" | "manual" }
+```
+
+One event type covers three cases: the rolling notes summary (`kind: "notes"`, emitted periodically as the session progresses), a question auto-detected in spoken transcript (`kind: "qa", source: "auto"`), and a manually typed question via `POST /sessions/:id/ask` (`kind: "qa", source: "manual"`). ElevenLabs is also supported as a second speech provider alongside Deepgram (`?provider=deepgram|elevenlabs` was the original selection mechanism from an earlier contract draft — provider selection now happens via env var at sidecar launch, matching the dynamic-port/token model above).

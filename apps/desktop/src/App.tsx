@@ -6,6 +6,66 @@ import { useRecordingSession } from "./hooks/useRecordingSession";
 import { useRuntimeHealth } from "./hooks/useRuntimeHealth";
 import type { RecordingCommand, RecordingState } from "./lib/recording-events";
 
+function QaPanel({
+  qaLog,
+  onAsk,
+}: {
+  qaLog: { question: string; answer: string; source?: "auto" | "manual" }[];
+  onAsk: (question: string) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  return (
+    <aside className="transcript-card qa-card" aria-live="polite">
+      <div className="card-header">
+        <div>
+          <span className="card-kicker">Cerebras</span>
+          <h2>Notes &amp; Q&amp;A</h2>
+        </div>
+      </div>
+      <div className="transcript-body qa-log">
+        {qaLog.length ? (
+          qaLog.map((entry, i) => (
+            <div className="qa-item" key={i}>
+              <p className="qa-question">
+                Q: {entry.question}
+                {entry.source === "auto" ? (
+                  <span className="qa-tag"> (from speech)</span>
+                ) : null}
+              </p>
+              <p className="qa-answer">A: {entry.answer}</p>
+            </div>
+          ))
+        ) : (
+          <p className="empty-copy">
+            Questions asked out loud are answered automatically here. You can
+            also type one below.
+          </p>
+        )}
+      </div>
+      <form
+        className="qa-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!question.trim()) return;
+          onAsk(question);
+          setQuestion("");
+        }}
+      >
+        <input
+          type="text"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="Ask about this session…"
+          aria-label="Ask about this session"
+        />
+        <button type="submit" className="small-button small-button--primary">
+          Ask
+        </button>
+      </form>
+    </aside>
+  );
+}
+
 const isOverlay = new URLSearchParams(window.location.search).has("overlay");
 
 function formatDuration(durationMs: number): string {
@@ -157,35 +217,59 @@ function MainWorkspace() {
           ) : null}
         </div>
 
-        <aside className="transcript-card" aria-live="polite">
-          <div className="card-header">
-            <div>
-              <span className="card-kicker">Mock transcript</span>
-              <h2>Current session</h2>
+        <div className="session-panels">
+          <aside className="transcript-card" aria-live="polite">
+            <div className="card-header">
+              <div>
+                <span className="card-kicker">Live transcript</span>
+                <h2>Current session</h2>
+              </div>
+              {recording.phase === "recording" ? (
+                <span className="live-badge">
+                  <span />
+                  Live
+                </span>
+              ) : null}
             </div>
-            {recording.phase === "recording" ? (
-              <span className="live-badge">
-                <span />
-                Live
+            <div className="transcript-body">
+              {recording.transcript ? (
+                <p>{recording.transcript}</p>
+              ) : (
+                <p className="empty-copy">
+                  Your transcript will appear here after recording begins.
+                </p>
+              )}
+            </div>
+            <footer className="card-footer">
+              <span>16 kHz · Mono · PCM</span>
+              <span>
+                {recording.latencyMs !== null
+                  ? `${recording.latencyMs}ms inference latency`
+                  : "Stored locally"}
               </span>
-            ) : null}
-          </div>
-          <div className="transcript-body">
-            {recording.transcript ? (
-              <p>{recording.transcript}</p>
-            ) : (
-              <p className="empty-copy">
-                Your transcript will appear here after recording begins. The
-                current sidecar returns deterministic mock text until Deepgram
-                is connected.
-              </p>
-            )}
-          </div>
-          <footer className="card-footer">
-            <span>16 kHz · Mono · PCM</span>
-            <span>Stored locally</span>
-          </footer>
-        </aside>
+            </footer>
+          </aside>
+
+          <aside className="transcript-card notes-card" aria-live="polite">
+            <div className="card-header">
+              <div>
+                <span className="card-kicker">Cerebras</span>
+                <h2>Running notes</h2>
+              </div>
+            </div>
+            <div className="transcript-body">
+              {recording.notes ? (
+                <p>{recording.notes}</p>
+              ) : (
+                <p className="empty-copy">
+                  A running summary appears here as the conversation continues.
+                </p>
+              )}
+            </div>
+          </aside>
+
+          <QaPanel qaLog={recording.qaLog} onAsk={(q) => void recording.ask(q)} />
+        </div>
       </section>
       {settingsOpen ? (
         <ProviderSettings

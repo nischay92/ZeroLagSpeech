@@ -251,6 +251,11 @@ h1 {
   line-height: 1.45;
 }
 
+.session-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
 .transcript-card {
   display: flex;
   flex-direction: column;
@@ -261,6 +266,51 @@ h1 {
   border-radius: 24px;
   background: rgb(18 20 25 / 84%);
   box-shadow: 0 30px 100px rgb(0 0 0 / 38%);
+}
+.session-panels .transcript-card {
+  height: auto;
+  min-height: 220px;
+  max-height: 320px;
+}
+.qa-card {
+  gap: 0;
+}
+.qa-log {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.qa-item .qa-question {
+  margin: 0 0 4px;
+  color: #9ca1ab;
+  font-size: 0.85rem;
+}
+.qa-item .qa-answer {
+  margin: 0;
+  color: #e2e4e8;
+}
+.qa-tag {
+  color: #65e6ac;
+  font-size: 0.72rem;
+}
+.qa-form {
+  display: flex;
+  gap: 10px;
+  padding: 16px 25px;
+  border-top: 1px solid #272a31;
+}
+.qa-form input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #30343d;
+  border-radius: 12px;
+  background: #0d0f13;
+  color: #e8e9ec;
+  font-size: 0.85rem;
+}
+.qa-form input:focus {
+  border-color: #65e6ac;
+  outline: none;
 }
 .card-header,
 .card-footer {

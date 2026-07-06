@@ -29,6 +29,21 @@ export interface SidecarHealth {
   };
 }
 
+// inference.result.data shape — one event type covers the rolling notes
+// summary, a question auto-detected in spoken transcript, and a manually
+// typed question, discriminated by `kind`/`source`. See
+// docs/sidecar-protocol.md "Implemented extension: inference.result data shape".
+export interface InferenceResultData {
+  kind: "notes" | "qa";
+  text: string;
+  question?: string;
+  source?: "auto" | "manual";
+}
+
+export interface LatencyUpdatedData {
+  cerebrasLatencyMs: number;
+}
+
 export const SIDECAR_AUDIO_FORMAT = {
   encoding: "pcm_s16le",
   sample_rate_hz: 16_000,
